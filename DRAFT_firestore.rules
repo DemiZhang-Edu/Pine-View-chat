@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitive Definition
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+    
+    // User email from runtime as admin
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'demizy2024@gmail.com' && request.auth.token.email_verified == true
+      );
+    }
+
+    // Validation Blueprints
+    function isValidMessage(data) {
+      return data.keys().hasAll(['text', 'senderId', 'senderName', 'createdAt', 'senderPhotoUrl']) && 
+             data.keys().size() == 5 && // Strict keys to prevent shadow fields
+             data.text is string && data.text.size() > 0 && data.text.size() <= 10000 &&
+             data.senderId == request.auth.uid &&
+             data.senderId is string &&
+             data.senderName is string && data.senderName.size() <= 100 &&
+             data.senderPhotoUrl is string && data.senderPhotoUrl.size() <= 1000 &&
+             data.createdAt == request.time;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName', 'email', 'lastSeen']) &&
+             data.keys().size() == 3 &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.email is string && data.email.size() <= 256 &&
+             data.lastSeen == request.time;
+    }
+
+    function isValidProfile(data) {
+      return data.keys().hasAll(['displayName', 'photoURL', 'lastSeen']) &&
+             data.keys().size() == 3 &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.photoURL is string && data.photoURL.size() <= 1000 &&
+             data.lastSeen == request.time;
+    }
+
+    // 1. Messages Collection
+    match /messages/{messageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(messageId) && isValidMessage(incoming());
+      allow update, delete: if isAdmin();
+    }
+
+    // 2. Users Collection
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId) && isValidUser(incoming());
+      allow delete: if isAdmin();
+
+      match /contacts/{contactId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isValidProfile(incoming());
+      }
+    }
+
+    // 2.1 Profiles Collection
+    match /profiles/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(userId) && isValidProfile(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 3. Typing Indicators
+    function isValidTyping(data) {
+      return data.keys().hasAll(['isTyping', 'lastUpdated', 'userId', 'displayName']) &&
+             data.isTyping is bool &&
+             data.userId == request.auth.uid &&
+             data.lastUpdated == request.time;
+    }
+
+    match /typing/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isValidTyping(incoming());
+    }
+  }
+}

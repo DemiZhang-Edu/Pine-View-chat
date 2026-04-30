@@ -1,0 +1,142 @@
+{
+  "entities": {
+    "Message": {
+      "title": "Message",
+      "description": "A chat message",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The message content"
+        },
+        "senderId": {
+          "type": "string",
+          "description": "UID of the sender"
+        },
+        "senderName": {
+          "type": "string",
+          "description": "Display name of the sender"
+        },
+        "senderPhotoUrl": {
+          "type": "string",
+          "description": "Avatar URL of the sender"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation"
+        },
+        "fileUrl": {
+          "type": "string",
+          "description": "URL of attached file"
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Name of attached file"
+        },
+        "fileType": {
+          "type": "string",
+          "description": "MIME type of attached file"
+        }
+      },
+      "required": ["text", "senderId", "senderName", "createdAt"]
+    },
+    "User": {
+        "title": "User",
+        "description": "A private user profile containing personal data",
+        "type": "object",
+        "properties": {
+            "displayName": { "type": "string" },
+            "username": { "type": "string" },
+            "lastSeen": { "type": "string", "format": "date-time" },
+            "bio": { "type": "string" }
+        },
+        "required": ["displayName", "username"]
+    },
+    "UserProfile": {
+        "title": "User Profile",
+        "description": "A public user profile",
+        "type": "object",
+        "properties": {
+            "displayName": { "type": "string" },
+            "username": { "type": "string" },
+            "photoURL": { "type": "string" },
+            "lastSeen": { "type": "string", "format": "date-time" },
+            "bio": { "type": "string" }
+        },
+        "required": ["displayName", "username"]
+    },
+    "TypingState": {
+        "title": "Typing State",
+        "description": "User typing status",
+        "type": "object",
+        "properties": {
+            "userId": { "type": "string" },
+            "displayName": { "type": "string" },
+            "isTyping": { "type": "boolean" },
+            "lastUpdated": { "type": "string", "format": "date-time" }
+        },
+        "required": ["userId", "isTyping", "lastUpdated"]
+    },
+    "Server": {
+      "title": "Server",
+      "description": "A group chat server",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "iconUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "inviteCode": { "type": "string" }
+      },
+      "required": ["name", "ownerId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "messages": {
+      "schema": "Message",
+      "description": "Global chat messages"
+    },
+    "users": {
+        "schema": "User",
+        "description": "User profiles for PII isolation"
+    },
+    "profiles": {
+        "schema": "UserProfile",
+        "description": "Public user profiles for search"
+    },
+    "users/{userId}/contacts": {
+        "schema": "UserProfile",
+        "description": "User contact list for DMs"
+    },
+    "typing": {
+        "schema": "TypingState",
+        "description": "Real-time typing status"
+    },
+    "servers": {
+        "schema": "Server",
+        "description": "User created servers"
+    },
+    "servers/{serverId}/members": {
+        "schema": {
+          "title": "Server Member",
+          "type": "object",
+          "properties": {
+            "userId": { "type": "string" },
+            "displayName": { "type": "string" },
+            "username": { "type": "string" },
+            "photoURL": { "type": "string" },
+            "joinedAt": { "type": "string", "format": "date-time" },
+            "role": { "type": "string", "enum": ["owner", "member"] }
+          },
+          "required": ["userId", "displayName", "username", "joinedAt", "role"]
+        },
+        "description": "Server member list"
+    },
+    "servers/{serverId}/messages": {
+        "schema": "Message",
+        "description": "Server channel messages"
+    }
+  }
+}

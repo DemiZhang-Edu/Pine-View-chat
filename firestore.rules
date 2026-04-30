@@ -1,0 +1,168 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitive Definition
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+    
+    // User email from runtime as admin
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'demizy2024@gmail.com' ||
+        request.auth.token.email == 'demizy2024@pvchat.app'
+      );
+    }
+
+    // Validation Blueprints
+    function isValidMessage(data) {
+      return data.keys().hasAll(['text', 'senderId', 'senderName', 'createdAt', 'senderPhotoUrl']) && 
+             data.keys().size() >= 5 && data.keys().size() <= 8 && // Allow optional file fields
+             data.text is string && (data.text.size() >= 0 && data.text.size() <= 10000) &&
+             data.senderId == request.auth.uid &&
+             data.senderId is string &&
+             data.senderName is string && data.senderName.size() <= 100 &&
+             data.senderPhotoUrl is string && data.senderPhotoUrl.size() <= 1000 &&
+             data.createdAt == request.time &&
+             (!data.keys().contains('fileUrl') || (data.fileUrl is string && data.fileUrl.size() <= 1000)) &&
+             (!data.keys().contains('fileName') || (data.fileName is string && data.fileName.size() <= 256)) &&
+             (!data.keys().contains('fileType') || (data.fileType is string && data.fileType.size() <= 100));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName', 'username', 'lastSeen']) &&
+             data.keys().size() >= 3 && data.keys().size() <= 4 &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.username is string && data.username.size() <= 500 &&
+             data.lastSeen == request.time &&
+             (!data.keys().contains('bio') || (data.bio is string && data.bio.size() <= 500));
+    }
+
+    function isValidProfile(data) {
+      return data.keys().hasAll(['displayName', 'username', 'photoURL', 'lastSeen']) &&
+             data.keys().size() >= 4 && data.keys().size() <= 5 &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.username is string && data.username.size() <= 500 &&
+             data.photoURL is string && data.photoURL.size() <= 1000 &&
+             data.lastSeen == request.time &&
+             (!data.keys().contains('bio') || (data.bio is string && data.bio.size() <= 500));
+    }
+
+    // 1. Messages Collection
+    match /messages/{messageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(messageId) && isValidMessage(incoming());
+      allow update, delete: if isAdmin();
+    }
+
+    // 2. Users Collection
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId) && isValidUser(incoming());
+      allow delete: if isAdmin();
+
+      match /contacts/{contactId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isValidProfile(incoming());
+      }
+    }
+
+    // 2.1 Profiles Collection
+    match /profiles/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(userId) && isValidProfile(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 3. Typing Indicators
+    function isValidTyping(data) {
+      return data.keys().hasAll(['isTyping', 'lastUpdated', 'userId', 'displayName']) &&
+             data.isTyping is bool &&
+             data.userId == request.auth.uid &&
+             data.lastUpdated == request.time;
+    }
+
+    match /typing/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isValidTyping(incoming());
+    }
+
+    // 4. Servers
+    function isValidServer(data) {
+      return data.keys().hasAll(['name', 'ownerId', 'createdAt', 'inviteCode']) &&
+             data.keys().size() >= 4 && data.keys().size() <= 6 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.ownerId == request.auth.uid &&
+             data.createdAt == request.time &&
+             data.inviteCode is string && data.inviteCode.size() == 6 &&
+             (!data.keys().contains('description') || (data.description is string && data.description.size() <= 500)) &&
+             (!data.keys().contains('iconUrl') || (data.iconUrl == null || (data.iconUrl is string && data.iconUrl.size() <= 1000)));
+    }
+
+    function isServerMember(serverId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/servers/$(serverId)/members/$(request.auth.uid));
+    }
+
+    function isServerOwner(serverId) {
+      return isSignedIn() && get(/databases/$(database)/documents/servers/$(serverId)).data.ownerId == request.auth.uid;
+    }
+
+    function isValidMember(data, memberId) {
+      return data.keys().hasAll(['userId', 'displayName', 'username', 'joinedAt', 'role']) &&
+             data.keys().size() >= 5 && data.keys().size() <= 6 &&
+             data.userId == memberId && // Ensure userId field matches documentId
+             data.displayName is string &&
+             data.username is string &&
+             data.role in ['owner', 'member'] &&
+             data.joinedAt == request.time &&
+             (!data.keys().contains('photoURL') || (data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 1000)));
+    }
+
+    match /servers/{serverId} {
+      allow list: if isSignedIn();
+      allow get: if isSignedIn(); // Allow get for joining process or discovery
+      allow create: if isSignedIn() && isValidServer(incoming());
+      allow update: if isSignedIn() && (isServerOwner(serverId) || isAdmin()) && isValidServer(incoming());
+      allow delete: if (isServerOwner(serverId) || isAdmin());
+
+      match /members/{memberId} {
+        allow read: if isSignedIn() && (isServerMember(serverId) || isServerOwner(serverId));
+        // Allow creating own member doc (joining) or owner managing
+        allow create, update: if (isOwner(memberId) || isServerOwner(serverId) || isAdmin()) && isValidMember(incoming(), memberId);
+        allow delete: if (isOwner(memberId) || isServerOwner(serverId) || isAdmin());
+      }
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (isServerMember(serverId) || isServerOwner(serverId) || isAdmin());
+        allow create: if isSignedIn() && (isServerMember(serverId) || isServerOwner(serverId)) && isValidId(messageId) && isValidMessage(incoming());
+        allow update, delete: if isSignedIn() && (incoming().senderId == request.auth.uid || isServerOwner(serverId) || isAdmin());
+      }
+    }
+
+    // Collection Group rules for server memberships
+    match /{path=**}/members/{memberId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isServerMember(path[path.size()-3]));
+    }
+  }
+}
