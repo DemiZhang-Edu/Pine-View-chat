@@ -122,6 +122,7 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
     { id: 'news', icon: Newspaper, label: 'News' },
     { id: 'chat', icon: MessageSquare, label: 'Global Chat' },
     { id: 'profile', icon: UserIcon, label: 'Profile' },
+    { id: 'settings', icon: Settings, label: 'Settings' },
   ];
 
   if (user?.email === 'demizy2024@gmail.com') {

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 
 type Theme = 'light' | 'dark';
@@ -48,9 +48,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribeAuth();
   }, []);
 
-  const setBackgroundMode = (mode: BackgroundMode) => {
+  const setBackgroundMode = async (mode: BackgroundMode) => {
     setBackgroundModeState(mode);
     localStorage.setItem('pvchat-bg-mode', mode);
+    
+    // Sync with Firestore if logged in
+    if (auth.currentUser) {
+      try {
+        const profileRef = doc(db, 'profiles', auth.currentUser.uid);
+        await updateDoc(profileRef, { backgroundMode: mode });
+      } catch (err) {
+        console.error("Failed to sync background mode to Firestore:", err);
+      }
+    }
   };
 
   useEffect(() => {

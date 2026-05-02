@@ -15,9 +15,10 @@ interface ChatRoomProps {
   serverId: string | null;
   serverName?: string;
   onViewProfile?: (userId: string) => void;
+  onChangeView?: (view: any) => void;
 }
 
-export function ChatRoom({ serverId, serverName, onViewProfile }: ChatRoomProps) {
+export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: ChatRoomProps) {
   const [user] = useAuthState(auth);
   const { backgroundMode } = useTheme();
   const [formValue, setFormValue] = useState('');
@@ -146,6 +147,44 @@ export function ChatRoom({ serverId, serverName, onViewProfile }: ChatRoomProps)
     setFormValue('');
 
     try {
+      if (originalValue.startsWith('/')) {
+        const cmd = originalValue.toLowerCase().split(' ')[0];
+        
+        if (cmd === '/help') {
+          alert('Available commands:\n/help - Show this list\n/news - Go to News\n/home - Go to Home\n/profile - Go to Profile\n/settings - App Settings\n/admin - Admin Panel (Admins Only)');
+          return;
+        }
+        
+        if (cmd === '/news' && onChangeView) {
+          onChangeView('news');
+          return;
+        }
+
+        if (cmd === '/settings' && onChangeView) {
+          onChangeView('settings');
+          return;
+        }
+        
+        if (cmd === '/home' && onChangeView) {
+          onChangeView('home');
+          return;
+        }
+        
+        if (cmd === '/profile' && onChangeView) {
+          onChangeView('profile');
+          return;
+        }
+        
+        if (cmd === '/admin' && onChangeView) {
+          if (user.email === 'demizy2024@gmail.com') {
+            onChangeView('admin');
+          } else {
+            alert('Admin only.');
+          }
+          return;
+        }
+      }
+
       if (hasProfanity) {
         // Log alert for admin
         await addDoc(collection(db, 'profanity_alerts'), {

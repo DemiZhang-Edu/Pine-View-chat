@@ -19,16 +19,17 @@ import { Home } from './components/Home';
 import { Profile } from './components/Profile';
 import { AdminPanel } from './components/AdminPanel';
 import { News } from './components/News';
+import { Settings } from './components/Settings';
 import { Sidebar } from './components/Sidebar';
 import { Logo } from './components/Logo';
-import { MessageCircle, Hash, MessageSquare, Users, Settings, Github, Home as HomeIcon, Plus, User as UserIcon } from 'lucide-react';
+import { MessageCircle, Hash, MessageSquare, Users, Settings as SettingsIcon, Github, Home as HomeIcon, Plus, User as UserIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from './context/ThemeContext';
 
 export default function App() {
   const [user, loading] = useAuthState(auth);
   const { backgroundMode } = useTheme();
-  const [view, setView] = useState<'home' | 'chat' | 'profile' | 'admin' | 'news'>('home');
+  const [view, setView] = useState<'home' | 'chat' | 'profile' | 'admin' | 'news' | 'settings'>('home');
   const [activeServerId, setActiveServerId] = useState<string | null>(null);
   const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
 
@@ -162,8 +163,9 @@ export default function App() {
                       <motion.div 
                         whileHover={{ rotate: 90 }}
                         className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer transition-colors"
+                        onClick={() => setView('settings')}
                       >
-                        <Settings size={18} />
+                        <SettingsIcon size={18} />
                       </motion.div>
                     </div>
                   </header>
@@ -173,6 +175,7 @@ export default function App() {
                       serverId={activeServerId} 
                       serverName={activeServerId ? activeServer?.name : 'Global Chat'} 
                       onViewProfile={viewProfile}
+                      onChangeView={setView}
                     />
                   </div>
                 </>
@@ -195,6 +198,10 @@ export default function App() {
 
               {view === 'news' && (
                 <News />
+              )}
+
+              {view === 'settings' && (
+                <Settings />
               )}
             </motion.div>
           ) : (
@@ -242,7 +249,7 @@ export default function App() {
                 {[
                   { title: 'Indigo Polish', desc: 'Sleek professional aesthetic', icon: <MessageSquare size={20} /> },
                   { title: 'Secure Auth', desc: 'Identity protection built-in', icon: <Users size={20} /> },
-                  { title: 'Instant Sync', desc: 'Real-time database updates', icon: <Settings size={20} /> },
+                  { title: 'Instant Sync', desc: 'Real-time database updates', icon: <SettingsIcon size={20} /> },
                 ].map((f, i) => (
                   <motion.div 
                     key={i} 
