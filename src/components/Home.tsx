@@ -15,6 +15,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Message } from '../types';
 import { Logo } from './Logo';
+import { useTheme } from '../context/ThemeContext';
 
 interface HomeProps {
   onStartChat: () => void;
@@ -23,6 +24,7 @@ interface HomeProps {
 
 export function Home({ onStartChat, onViewProfile }: HomeProps) {
   const [user] = useAuthState(auth);
+  const { backgroundMode } = useTheme();
 
   // Fetch latest activity (messages)
   const messagesRef = collection(db, 'messages');
@@ -31,7 +33,9 @@ export function Home({ onStartChat, onViewProfile }: HomeProps) {
   const messages = messagesSnapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Message[];
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-12 overflow-y-auto h-full custom-scrollbar dark:bg-slate-900">
+    <div className={`p-8 max-w-6xl mx-auto space-y-12 overflow-y-auto h-full custom-scrollbar transition-all duration-700 ${
+      backgroundMode === 'default' ? 'dark:bg-slate-900' : 'bg-transparent'
+    }`}>
       {/* Welcome Section */}
       <motion.section
         initial={{ opacity: 0, y: 20 }}
@@ -87,7 +91,11 @@ export function Home({ onStartChat, onViewProfile }: HomeProps) {
             {loading && <Loader2 size={16} className="text-slate-400 animate-spin" />}
           </div>
           
-          <div className="bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm min-h-[300px]">
+          <div className={`transition-all duration-500 rounded-2xl border overflow-hidden shadow-sm min-h-[300px] ${
+            backgroundMode === 'default' 
+              ? 'bg-white dark:bg-slate-800/50 border-slate-100 dark:border-slate-800' 
+              : 'bg-white/20 dark:bg-white/5 border-white/20 dark:border-white/5 backdrop-blur-md'
+          }`}>
             <AnimatePresence mode="wait">
               {loading ? (
                 <motion.div 

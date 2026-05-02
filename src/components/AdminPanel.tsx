@@ -10,8 +10,9 @@ interface AdminPanelProps {
 
 export function AdminPanel({ onViewServer }: AdminPanelProps) {
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ users: 0, servers: 0, messages: 0 });
+  const [stats, setStats] = useState({ users: 0, servers: 0, messages: 0, alerts: 0 });
   const [recentServers, setRecentServers] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -21,14 +22,16 @@ export function AdminPanel({ onViewServer }: AdminPanelProps) {
         // In a real app, these would be cloud functions for performance
         const usersSnap = await getDocs(collection(db, 'users'));
         const serversSnap = await getDocs(collection(db, 'servers'));
-        const messagesSnap = await getDocs(query(collection(db, 'messages'), limit(1))); // Just checking existence
+        const alertsSnap = await getDocs(query(collection(db, 'profanity_alerts'), orderBy('createdAt', 'desc'), limit(10)));
 
         setStats({
           users: usersSnap.size,
           servers: serversSnap.size,
-          messages: 0 // Fetching all messages is too heavy for client-side admin
+          messages: 0, // Fetching all messages is too heavy for client-side admin
+          alerts: alertsSnap.size
         });
 
+        setAlerts(alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         const servers = serversSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setRecentServers(servers);
       } catch (error) {
@@ -79,10 +82,11 @@ export function AdminPanel({ onViewServer }: AdminPanelProps) {
         </header>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           {[
             { label: 'Total Users', value: stats.users, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/20' },
             { label: 'Total Servers', value: stats.servers, icon: Globe, color: 'text-indigo-600', bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
+            { label: 'Profanity Alerts', value: stats.alerts, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/20' },
             { label: 'System Status', value: 'Healthy', icon: BarChart3, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
           ].map((stat, i) => (
             <motion.div
@@ -102,6 +106,61 @@ export function AdminPanel({ onViewServer }: AdminPanelProps) {
             </motion.div>
           ))}
         </div>
+
+        {/* Profanity Alerts */}
+        <section className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <AlertCircle size={20} className="text-red-600" /> Profanity Trigger Alerts
+            </h3>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/50">
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">User</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Context</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Original Text</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Triggered Words</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                  {alerts.map((a) => (
+                    <tr key={a.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="font-bold text-slate-900 dark:text-white text-sm">{a.userName}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-xs text-slate-500 font-medium">{a.context}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-xs text-slate-600 dark:text-slate-400 italic line-clamp-1">"{a.originalText}"</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1">
+                          {a.triggeredWords?.map((w: string, idx: number) => (
+                            <span key={idx} className="text-[9px] font-black uppercase bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-2 py-0.5 rounded">
+                              {w}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {alerts.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-8 text-center text-slate-400 italic text-sm">
+                        No profanity triggers detected yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
 
         {/* Server Management */}
         <section className="space-y-6">

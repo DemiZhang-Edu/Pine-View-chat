@@ -20,12 +20,14 @@ import {
   User as UserIcon,
   Home as HomeIcon,
   Sun,
-  Moon
+  Moon,
+  Palette,
+  Newspaper
 } from 'lucide-react';
-import { auth, db } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useTheme } from '../context/ThemeContext';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { collection, query, where, onSnapshot, orderBy, collectionGroup } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, collectionGroup, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { CreateServerModal } from './CreateServerModal';
 import { JoinServerModal } from './JoinServerModal';
 import { Auth } from './Auth';
@@ -47,11 +49,29 @@ interface Server {
 
 export function Sidebar({ activeView, setActiveView, activeServerId, setActiveServerId, onViewProfile }: SidebarProps) {
   const [user] = useAuthState(auth);
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, backgroundMode, setBackgroundMode } = useTheme();
   const [servers, setServers] = useState<Server[]>([]);
   const [loadingServers, setLoadingServers] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showAtmosphereMenu, setShowAtmosphereMenu] = useState(false);
+  const [hoveredAtmosphere, setHoveredAtmosphere] = useState<string | null>(null);
+
+  const handleSetAtmosphere = async (mode: any) => {
+    setBackgroundMode(mode);
+    if (user) {
+      const profilePath = `profiles/${user.uid}`;
+      try {
+        await setDoc(doc(db, 'profiles', user.uid), {
+          backgroundMode: mode,
+          lastSeen: serverTimestamp()
+        }, { merge: true });
+      } catch (err) {
+        console.error("Failed to save atmosphere to profile:", err);
+        handleFirestoreError(err, OperationType.WRITE, profilePath);
+      }
+    }
+  };
 
   useEffect(() => {
     if (!user) {
@@ -60,43 +80,46 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
       return;
     }
 
-    // Use collectionGroup to find all 'members' documents where userId matches
+    // 1. List of memberships
     const membersQuery = query(collectionGroup(db, 'members'), where('userId', '==', user.uid));
     
-    const unsubscribe = onSnapshot(membersQuery, async (snapshot) => {
-      const serverIds = snapshot.docs.map(doc => doc.ref.parent.parent?.id).filter(Boolean) as string[];
-      
-      if (serverIds.length === 0) {
+    // 2. Fetch all servers (since they are public if you are a member or have invite)
+    // We listen to the whole collection once and filter locally based on the memberships
+    const serversRef = collection(db, 'servers');
+    
+    let currentServerIds: string[] = [];
+
+    const unsubMembers = onSnapshot(membersQuery, (snapshot) => {
+      currentServerIds = snapshot.docs.map(doc => doc.ref.parent.parent?.id).filter(Boolean) as string[];
+      if (currentServerIds.length === 0) {
         setServers([]);
         setLoadingServers(false);
-        return;
       }
-
-      // Fetch server data for these IDs
-      const serversRef = collection(db, 'servers');
-      // For real-time updates of my servers list
-      const unsubServers = onSnapshot(serversRef, (srvSnapshot) => {
-        const srvs = srvSnapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() } as Server))
-          .filter(s => serverIds.includes(s.id));
-        setServers(srvs);
-        setLoadingServers(false);
-      }, (err) => {
-        console.error("Error in servers listener:", err);
-        setLoadingServers(false);
-      });
-
-      return unsubServers;
     }, (error) => {
-      console.error("Error fetching my server memberships:", error);
+      console.error("Error fetching memberships:", error);
+    });
+
+    const unsubServers = onSnapshot(serversRef, (srvSnapshot) => {
+      const srvs = srvSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Server))
+        .filter(s => currentServerIds.includes(s.id));
+      
+      setServers(srvs);
+      setLoadingServers(false);
+    }, (err) => {
+      console.error("Error in servers listener:", err);
       setLoadingServers(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubMembers();
+      unsubServers();
+    };
   }, [user]);
 
   const navItems = [
     { id: 'home', icon: HomeIcon, label: 'Home' },
+    { id: 'news', icon: Newspaper, label: 'News' },
     { id: 'chat', icon: MessageSquare, label: 'Global Chat' },
     { id: 'profile', icon: UserIcon, label: 'Profile' },
   ];
@@ -110,7 +133,11 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
       initial={{ x: -20, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      className="w-64 bg-white dark:bg-slate-900 flex flex-col shrink-0 border-r border-slate-200 dark:border-slate-800 z-20"
+      className={`w-64 flex flex-col shrink-0 border-r transition-all duration-700 z-20 ${
+        backgroundMode === 'default'
+          ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-lg'
+          : 'bg-white/30 dark:bg-slate-950/30 backdrop-blur-xl border-white/20 dark:border-white/5'
+      }`}
     >
       <div className="p-6 border-b border-slate-200 dark:border-slate-800">
         <Logo />
@@ -232,23 +259,90 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.5 }}
-        className="p-4 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800"
+        className={`p-4 border-t transition-all duration-500 ${
+          backgroundMode === 'default'
+            ? 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'
+            : 'bg-white/20 dark:bg-black/10 border-white/10 dark:border-white/5 backdrop-blur-lg'
+        }`}
       >
+        <AnimatePresence>
+          {showAtmosphereMenu && (
+            <motion.div
+              initial={{ opacity: 0, height: 0, y: 10 }}
+              animate={{ opacity: 1, height: 'auto', y: 0 }}
+              exit={{ opacity: 0, height: 0, y: 10 }}
+              className="mb-4 p-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden"
+            >
+              <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3 flex items-center justify-between h-4">
+                <AnimatePresence mode="wait">
+                  <motion.span
+                    key={hoveredAtmosphere || 'default-label'}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    {hoveredAtmosphere || 'Select Atmosphere'}
+                  </motion.span>
+                </AnimatePresence>
+                <Palette size={10} />
+              </div>
+              <div className="flex items-center justify-between gap-1">
+                {[
+                  { id: 'default', color: 'bg-slate-200 dark:bg-slate-700', label: 'Classic' },
+                  { id: 'aurora', color: 'bg-emerald-500', label: 'Aurora' },
+                  { id: 'calm', color: 'bg-blue-300', label: 'Calm' },
+                  { id: 'neon', color: 'bg-purple-600', label: 'Neon' },
+                  { id: 'misty', color: 'bg-slate-400', label: 'Misty' },
+                ].map((mode) => (
+                  <motion.button
+                    key={mode.id}
+                    whileHover={{ scale: 1.1, y: -2 }}
+                    whileTap={{ scale: 0.9 }}
+                    onMouseEnter={() => setHoveredAtmosphere(mode.label)}
+                    onMouseLeave={() => setHoveredAtmosphere(null)}
+                    onClick={() => handleSetAtmosphere(mode.id)}
+                    title={mode.label}
+                    className={`w-7 h-7 rounded-full ${mode.color} border-2 transition-all ${
+                      backgroundMode === mode.id ? 'border-indigo-600 ring-2 ring-indigo-500/20' : 'border-transparent'
+                    }`}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* New Theme Toggle Component */}
-        <div className="mb-4 p-2 bg-slate-100 dark:bg-slate-800/50 rounded-xl flex items-center justify-between">
-          <div className="flex items-center gap-2 pl-2">
-            {theme === 'light' ? <Sun size={14} className="text-amber-500" /> : <Moon size={14} className="text-indigo-400" />}
-            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{theme} Mode</span>
+        <div className="mb-4 flex gap-2">
+          <div className="flex-1 p-2 bg-slate-100 dark:bg-slate-800/50 rounded-xl flex items-center justify-between">
+            <div className="flex items-center gap-2 pl-2">
+              {theme === 'light' ? <Sun size={14} className="text-amber-500" /> : <Moon size={14} className="text-indigo-400" />}
+              <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{theme} Mode</span>
+            </div>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={toggleTheme}
+              className={`w-10 h-5 rounded-full relative transition-colors duration-300 ${theme === 'dark' ? 'bg-indigo-600' : 'bg-slate-300'}`}
+            >
+              <motion.div 
+                animate={{ x: theme === 'dark' ? 20 : 2 }}
+                className="absolute top-1 left-0 w-3 h-3 bg-white rounded-full shadow-sm"
+              />
+            </motion.button>
           </div>
           <motion.button
-            whileTap={{ scale: 0.9 }}
-            onClick={toggleTheme}
-            className={`w-10 h-5 rounded-full relative transition-colors duration-300 ${theme === 'dark' ? 'bg-indigo-600' : 'bg-slate-300'}`}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowAtmosphereMenu(!showAtmosphereMenu)}
+            className={`p-2 rounded-xl border flex items-center justify-center transition-all ${
+              showAtmosphereMenu 
+                ? 'bg-indigo-600 border-indigo-600 text-white' 
+                : 'bg-slate-100 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-indigo-500'
+            }`}
+            title="Background Atmosphere"
           >
-            <motion.div 
-              animate={{ x: theme === 'dark' ? 20 : 2 }}
-              className="absolute top-1 left-0 w-3 h-3 bg-white rounded-full shadow-sm"
-            />
+            <Palette size={18} />
           </motion.button>
         </div>
 

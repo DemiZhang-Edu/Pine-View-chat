@@ -10,6 +10,34 @@
   body {
     @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-300;
   }
+
+  body.bg-aurora {
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 50%, #ccfbf1 100%);
+  }
+  .dark body.bg-aurora {
+    background: linear-gradient(135deg, #020617 0%, #064e3b 50%, #0f172a 100%);
+  }
+
+  body.bg-calm {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
+  }
+  .dark body.bg-calm {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  }
+
+  body.bg-neon {
+    background: linear-gradient(135deg, #fdf4ff 0%, #fae8ff 50%, #f5d0fe 100%);
+  }
+  .dark body.bg-neon {
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%);
+  }
+
+  body.bg-misty {
+    background: linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%);
+  }
+  .dark body.bg-misty {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  }
 }
 
 @layer utilities {

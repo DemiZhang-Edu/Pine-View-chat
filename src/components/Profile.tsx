@@ -4,6 +4,7 @@ import { auth, db } from '../lib/firebase';
 import { doc, getDoc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { User, Camera, Save, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTheme } from '../context/ThemeContext';
 
 interface ProfileProps {
   targetUserId?: string | null;
@@ -11,6 +12,7 @@ interface ProfileProps {
 
 export function Profile({ targetUserId }: ProfileProps) {
   const [user] = useAuthState(auth);
+  const { backgroundMode, setBackgroundMode } = useTheme();
   const isOwnProfile = !targetUserId || targetUserId === user?.uid;
   const profileId = targetUserId || user?.uid;
 
@@ -34,6 +36,10 @@ export function Profile({ targetUserId }: ProfileProps) {
           setDisplayName(data.displayName || '');
           setPhotoURL(data.photoURL || '');
           setBio(data.bio || '');
+          
+          if (isOwnProfile && data.backgroundMode) {
+            setBackgroundMode(data.backgroundMode);
+          }
           
           // Try to get username from users collection if it's our own profile or if it's public
           const userDoc = await getDoc(doc(db, 'users', profileId));
@@ -80,6 +86,7 @@ export function Profile({ targetUserId }: ProfileProps) {
         displayName: displayName.trim() || user.displayName || 'Anonymous',
         photoURL: photoURL.trim(),
         bio: bio.trim(),
+        backgroundMode: backgroundMode,
         lastSeen: serverTimestamp()
       };
       
@@ -103,13 +110,19 @@ export function Profile({ targetUserId }: ProfileProps) {
   }
 
   return (
-    <div className="flex-1 bg-slate-50 dark:bg-slate-950 overflow-y-auto custom-scrollbar p-6 md:p-12">
+    <div className={`flex-1 overflow-y-auto custom-scrollbar p-6 md:p-12 transition-all duration-700 ${
+      backgroundMode === 'default' ? 'bg-slate-50 dark:bg-slate-950' : 'bg-transparent'
+    }`}>
       <div className="max-w-2xl mx-auto">
         <motion.div 
           initial={{ opacity: 0, y: 30, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: "spring", stiffness: 200, damping: 20 }}
-          className="bg-white dark:bg-slate-900 rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-none overflow-hidden border border-slate-200 dark:border-slate-800"
+          className={`transition-all duration-500 rounded-3xl shadow-xl overflow-hidden border ${
+            backgroundMode === 'default' 
+              ? 'bg-white dark:bg-slate-900 shadow-slate-200/50 dark:shadow-none border-slate-200 dark:border-slate-800' 
+              : 'bg-white/20 dark:bg-white/5 border-white/20 dark:border-white/5 backdrop-blur-xl'
+          }`}
         >
           <div className="h-32 bg-indigo-600 relative">
             <div className="absolute -bottom-16 left-8">

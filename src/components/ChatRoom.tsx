@@ -8,6 +8,8 @@ import { Send, User, Paperclip, Smile, FileText, Download, ExternalLink } from '
 import { motion, AnimatePresence } from 'motion/react';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../lib/firebase';
+import { useTheme } from '../context/ThemeContext';
+import { filterProfanity } from '../lib/profanity';
 
 interface ChatRoomProps {
   serverId: string | null;
@@ -17,6 +19,7 @@ interface ChatRoomProps {
 
 export function ChatRoom({ serverId, serverName, onViewProfile }: ChatRoomProps) {
   const [user] = useAuthState(auth);
+  const { backgroundMode } = useTheme();
   const [formValue, setFormValue] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -138,12 +141,26 @@ export function ChatRoom({ serverId, serverName, onViewProfile }: ChatRoomProps)
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !formValue.trim()) return;
-    const val = formValue;
+    const originalValue = formValue.trim();
+    const { filteredText, triggeredWords, hasProfanity } = filterProfanity(originalValue);
     setFormValue('');
 
     try {
+      if (hasProfanity) {
+        // Log alert for admin
+        await addDoc(collection(db, 'profanity_alerts'), {
+          userId: user.uid,
+          userName: user.displayName || 'Anonymous',
+          originalText: originalValue,
+          filteredText: filteredText,
+          triggeredWords: triggeredWords,
+          createdAt: serverTimestamp(),
+          context: serverId ? `Server: ${serverName || serverId}` : 'Global Chat'
+        });
+      }
+
       await addDoc(messagesRef, {
-        text: val,
+        text: filteredText,
         createdAt: serverTimestamp(),
         senderId: user.uid,
         senderName: user.displayName || 'Anonymous',
@@ -199,7 +216,9 @@ export function ChatRoom({ serverId, serverName, onViewProfile }: ChatRoomProps)
 
   return (
     <div 
-      className="flex flex-col h-full bg-white dark:bg-slate-900 relative"
+      className={`flex flex-col h-full relative transition-all duration-700 ${
+        backgroundMode === 'default' ? 'bg-white dark:bg-slate-900' : 'bg-transparent'
+      }`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -224,7 +243,9 @@ export function ChatRoom({ serverId, serverName, onViewProfile }: ChatRoomProps)
       </AnimatePresence>
 
       {/* Message Feed */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar dark:bg-slate-900">
+      <div className={`flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar transition-all duration-700 ${
+        backgroundMode === 'default' ? 'dark:bg-slate-900' : 'bg-transparent'
+      }`}>
         <div className="flex items-center gap-4 py-2 text-slate-400 dark:text-slate-600">
           <div className="h-px bg-slate-100 dark:bg-slate-800 flex-1" />
           <span className="text-[10px] font-bold uppercase tracking-[0.2em]">
@@ -272,7 +293,11 @@ export function ChatRoom({ serverId, serverName, onViewProfile }: ChatRoomProps)
       </div>
 
       {/* Input Bar */}
-      <div className="p-6 pt-0 bg-white dark:bg-slate-900 border-t border-slate-50 dark:border-slate-800">
+      <div className={`p-6 pt-0 border-t transition-all duration-500 ${
+        backgroundMode === 'default' 
+          ? 'bg-white dark:bg-slate-900 border-slate-50 dark:border-slate-800' 
+          : 'bg-white/10 dark:bg-white/5 border-white/5 backdrop-blur-md rounded-t-3xl'
+      }`}>
         <form onSubmit={sendMessage} className="relative flex flex-col gap-3">
           <div className="relative group">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 flex gap-3 text-slate-400 group-focus-within:text-indigo-400 dark:group-focus-within:text-indigo-500 transition-colors z-10">

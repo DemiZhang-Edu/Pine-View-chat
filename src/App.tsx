@@ -18,14 +18,17 @@ import { ChatRoom } from './components/ChatRoom';
 import { Home } from './components/Home';
 import { Profile } from './components/Profile';
 import { AdminPanel } from './components/AdminPanel';
+import { News } from './components/News';
 import { Sidebar } from './components/Sidebar';
 import { Logo } from './components/Logo';
 import { MessageCircle, Hash, MessageSquare, Users, Settings, Github, Home as HomeIcon, Plus, User as UserIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTheme } from './context/ThemeContext';
 
 export default function App() {
   const [user, loading] = useAuthState(auth);
-  const [view, setView] = useState<'home' | 'chat' | 'profile' | 'admin'>('home');
+  const { backgroundMode } = useTheme();
+  const [view, setView] = useState<'home' | 'chat' | 'profile' | 'admin' | 'news'>('home');
   const [activeServerId, setActiveServerId] = useState<string | null>(null);
   const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
 
@@ -96,7 +99,11 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100 overflow-hidden">
+    <div className={`flex h-screen w-full font-sans text-slate-900 dark:text-slate-100 overflow-hidden transition-all duration-700 ${
+      backgroundMode === 'default' 
+        ? 'bg-slate-50 dark:bg-slate-950' 
+        : 'bg-transparent'
+    }`}>
       <Sidebar 
         activeView={view} 
         setActiveView={(v) => {
@@ -109,7 +116,11 @@ export default function App() {
       />
 
       {/* Main Area */}
-      <main className="flex-1 flex flex-col bg-white dark:bg-slate-900 overflow-hidden relative">
+      <main className={`flex-1 flex flex-col overflow-hidden relative transition-all duration-700 ${
+        backgroundMode === 'default' 
+          ? 'bg-white dark:bg-slate-900 shadow-xl' 
+          : 'bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border-l border-white/20 dark:border-white/5 shadow-2xl'
+      }`}>
         <AnimatePresence mode="wait">
           {user ? (
             <motion.div 
@@ -122,7 +133,11 @@ export default function App() {
             >
               {view === 'chat' && (
                 <>
-                  <header className="h-16 border-b border-slate-200 dark:border-slate-800 px-6 flex items-center justify-between shadow-sm bg-white dark:bg-slate-900 shrink-0 z-10">
+                  <header className={`h-16 shrink-0 z-10 border-b px-6 flex items-center justify-between transition-all duration-500 ${
+                    backgroundMode === 'default'
+                      ? 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
+                      : 'border-white/20 dark:border-white/5 bg-white/40 dark:bg-white/5 backdrop-blur-md shadow-sm'
+                  }`}>
                     <div className="flex items-center gap-4">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${activeServerId ? 'bg-slate-900 dark:bg-slate-800 text-white' : 'bg-indigo-600 text-white'}`}>
                         {activeServerId ? activeServer?.name?.charAt(0).toUpperCase() : <Hash size={20} />}
@@ -176,6 +191,10 @@ export default function App() {
 
               {view === 'admin' && user?.email === 'demizy2024@gmail.com' && (
                 <AdminPanel onViewServer={viewServer} />
+              )}
+
+              {view === 'news' && (
+                <News />
               )}
             </motion.div>
           ) : (

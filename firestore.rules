@@ -51,22 +51,32 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return data.keys().hasAll(['displayName', 'username', 'lastSeen']) &&
-             data.keys().size() >= 3 && data.keys().size() <= 4 &&
-             data.displayName is string && data.displayName.size() <= 100 &&
-             data.username is string && data.username.size() <= 500 &&
-             data.lastSeen == request.time &&
-             (!data.keys().contains('bio') || (data.bio is string && data.bio.size() <= 500));
+      return (data.lastSeen == request.time || data.lastSeen is timestamp) &&
+             (!data.keys().contains('displayName') || (data.displayName == null || (data.displayName is string && data.displayName.size() <= 256))) &&
+             (!data.keys().contains('username') || (data.username == null || (data.username is string && data.username.size() <= 512))) &&
+             (!data.keys().contains('photoURL') || (data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 2048))) &&
+             (!data.keys().contains('bio') || (data.bio == null || (data.bio is string && data.bio.size() <= 2048))) &&
+             (!data.keys().contains('backgroundMode') || (data.backgroundMode in ['default', 'aurora', 'calm', 'neon', 'misty']));
     }
 
     function isValidProfile(data) {
-      return data.keys().hasAll(['displayName', 'username', 'photoURL', 'lastSeen']) &&
-             data.keys().size() >= 4 && data.keys().size() <= 5 &&
-             data.displayName is string && data.displayName.size() <= 100 &&
-             data.username is string && data.username.size() <= 500 &&
-             data.photoURL is string && data.photoURL.size() <= 1000 &&
-             data.lastSeen == request.time &&
-             (!data.keys().contains('bio') || (data.bio is string && data.bio.size() <= 500));
+      return (data.lastSeen == request.time || data.lastSeen is timestamp) &&
+             (!data.keys().contains('displayName') || (data.displayName == null || (data.displayName is string && data.displayName.size() <= 256))) &&
+             (!data.keys().contains('username') || (data.username == null || (data.username is string && data.username.size() <= 512))) &&
+             (!data.keys().contains('photoURL') || (data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 2048))) &&
+             (!data.keys().contains('bio') || (data.bio == null || (data.bio is string && data.bio.size() <= 2048))) &&
+             (!data.keys().contains('backgroundMode') || (data.backgroundMode in ['default', 'aurora', 'calm', 'neon', 'misty']));
+    }
+
+    function isValidNews(data) {
+      return data.keys().hasAll(['title', 'content', 'authorId', 'authorName', 'createdAt']) &&
+             data.keys().size() >= 5 && data.keys().size() <= 8 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 5000 &&
+             data.authorId == request.auth.uid &&
+             (!data.keys().contains('imageUrl') || (data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 1000))) &&
+             (!data.keys().contains('authorPhotoURL') || (data.authorPhotoURL == null || (data.authorPhotoURL is string && data.authorPhotoURL.size() <= 1000))) &&
+             (!data.keys().contains('tags') || (data.tags is list && data.tags.size() <= 10));
     }
 
     // 1. Messages Collection
@@ -79,7 +89,7 @@ service cloud.firestore {
     // 2. Users Collection
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create, update: if isOwner(userId) && isValidUser(incoming());
+      allow write: if (isOwner(userId) || isAdmin()) && (incoming().lastSeen == request.time || incoming().lastSeen is timestamp);
       allow delete: if isAdmin();
 
       match /contacts/{contactId} {
@@ -91,8 +101,16 @@ service cloud.firestore {
     // 2.1 Profiles Collection
     match /profiles/{userId} {
       allow read: if isSignedIn();
-      allow create, update: if isOwner(userId) && isValidProfile(incoming());
+      allow write: if (isOwner(userId) || isAdmin()) && (incoming().lastSeen == request.time || incoming().lastSeen is timestamp);
       allow delete: if isAdmin();
+    }
+
+    // 2.2 News Collection
+    match /news/{newsId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidNews(incoming()) && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && (existing().authorId == request.auth.uid || isAdmin()) && isValidNews(incoming()) && incoming().createdAt == existing().createdAt;
+      allow delete: if isSignedIn() && (existing().authorId == request.auth.uid || isAdmin());
     }
 
     // 3. Typing Indicators
@@ -120,6 +138,25 @@ service cloud.firestore {
              (!data.keys().contains('iconUrl') || (data.iconUrl == null || (data.iconUrl is string && data.iconUrl.size() <= 1000)));
     }
 
+    // 5. Profanity Alerts
+    function isValidAlert(data) {
+      return data.keys().hasAll(['userId', 'userName', 'originalText', 'filteredText', 'triggeredWords', 'createdAt', 'context']) &&
+             data.keys().size() == 7 &&
+             data.userId == request.auth.uid &&
+             data.userName is string &&
+             data.originalText is string &&
+             data.filteredText is string &&
+             data.triggeredWords is list &&
+             data.context is string &&
+             data.createdAt == request.time;
+    }
+
+    match /profanity_alerts/{alertId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && isValidAlert(incoming());
+      allow update, delete: if isAdmin();
+    }
+
     function isServerMember(serverId) {
       return isSignedIn() && exists(/databases/$(database)/documents/servers/$(serverId)/members/$(request.auth.uid));
     }
@@ -140,8 +177,7 @@ service cloud.firestore {
     }
 
     match /servers/{serverId} {
-      allow list: if isSignedIn();
-      allow get: if isSignedIn(); // Allow get for joining process or discovery
+      allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidServer(incoming());
       allow update: if isSignedIn() && (isServerOwner(serverId) || isAdmin()) && isValidServer(incoming());
       allow delete: if (isServerOwner(serverId) || isAdmin());

@@ -19,3 +19,15 @@ export interface UserProfile {
   photoURL?: string;
   lastSeen: Timestamp;
 }
+
+export interface NewsItem {
+  id: string;
+  title: string;
+  content: string;
+  imageUrl?: string;
+  authorId: string;
+  authorName: string;
+  authorPhotoURL?: string;
+  createdAt: Timestamp;
+  tags?: string[];
+}

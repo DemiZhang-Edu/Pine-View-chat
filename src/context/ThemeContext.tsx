@@ -1,10 +1,16 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { auth, db } from '../lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 
 type Theme = 'light' | 'dark';
+type BackgroundMode = 'default' | 'aurora' | 'calm' | 'neon' | 'misty';
 
 interface ThemeContextType {
   theme: Theme;
+  backgroundMode: BackgroundMode;
   toggleTheme: () => void;
+  setBackgroundMode: (mode: BackgroundMode) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -16,6 +22,37 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return 'light';
   });
 
+  const [backgroundMode, setBackgroundModeState] = useState<BackgroundMode>(() => {
+    const saved = localStorage.getItem('pvchat-bg-mode');
+    if (['default', 'aurora', 'calm', 'neon', 'misty'].includes(saved || '')) return saved as BackgroundMode;
+    return 'default';
+  });
+
+  // Sync with Firestore profile
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        const profileRef = doc(db, 'profiles', user.uid);
+        const unsubscribeProfile = onSnapshot(profileRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (data.backgroundMode && ['default', 'aurora', 'calm', 'neon', 'misty'].includes(data.backgroundMode)) {
+              setBackgroundModeState(data.backgroundMode);
+            }
+          }
+        });
+        return () => unsubscribeProfile();
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  const setBackgroundMode = (mode: BackgroundMode) => {
+    setBackgroundModeState(mode);
+    localStorage.setItem('pvchat-bg-mode', mode);
+  };
+
   useEffect(() => {
     const root = window.document.documentElement;
     const body = window.document.body;
@@ -25,18 +62,24 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         el.classList.remove('light', 'dark');
         el.classList.add(theme);
         el.style.colorScheme = theme;
+        
+        // Handle background modes
+        el.classList.remove('bg-aurora', 'bg-calm', 'bg-neon', 'bg-misty');
+        if (backgroundMode !== 'default') {
+          el.classList.add(`bg-${backgroundMode}`);
+        }
       }
     });
 
     localStorage.setItem('pvchat-theme', theme);
-  }, [theme]);
+  }, [theme, backgroundMode]);
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, backgroundMode, toggleTheme, setBackgroundMode }}>
       {children}
     </ThemeContext.Provider>
   );

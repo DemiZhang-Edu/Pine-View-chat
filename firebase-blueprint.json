@@ -61,6 +61,7 @@
             "displayName": { "type": "string" },
             "username": { "type": "string" },
             "photoURL": { "type": "string" },
+            "backgroundMode": { "type": "string", "enum": ["default", "aurora", "calm", "neon", "misty"] },
             "lastSeen": { "type": "string", "format": "date-time" },
             "bio": { "type": "string" }
         },
@@ -91,12 +92,47 @@
         "inviteCode": { "type": "string" }
       },
       "required": ["name", "ownerId", "createdAt"]
+    },
+    "News": {
+        "title": "School News",
+        "description": "News and events shared by school members",
+        "type": "object",
+        "properties": {
+            "title": { "type": "string" },
+            "content": { "type": "string" },
+            "imageUrl": { "type": "string" },
+            "authorId": { "type": "string" },
+            "authorName": { "type": "string" },
+            "authorPhotoURL": { "type": "string" },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["title", "content", "authorId", "authorName", "createdAt"]
+    },
+    "Alert": {
+        "title": "Profanity Alert",
+        "description": "Logged when a user triggers the profanity filter",
+        "type": "object",
+        "properties": {
+            "userId": { "type": "string" },
+            "userName": { "type": "string" },
+            "originalText": { "type": "string" },
+            "filteredText": { "type": "string" },
+            "triggeredWords": { "type": "array", "items": { "type": "string" } },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "context": { "type": "string" }
+        },
+        "required": ["userId", "userName", "originalText", "filteredText", "triggeredWords", "createdAt", "context"]
     }
   },
   "firestore": {
     "messages": {
       "schema": "Message",
       "description": "Global chat messages"
+    },
+    "profanity_alerts": {
+        "schema": "Alert",
+        "description": "Logged profanity triggers for admins"
     },
     "users": {
         "schema": "User",
@@ -137,6 +173,10 @@
     "servers/{serverId}/messages": {
         "schema": "Message",
         "description": "Server channel messages"
+    },
+    "news": {
+        "schema": "News",
+        "description": "School news and activity feed"
     }
   }
 }
