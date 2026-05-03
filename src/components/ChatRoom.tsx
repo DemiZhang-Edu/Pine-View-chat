@@ -1,24 +1,27 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { useCollection, useCollectionData } from 'react-firebase-hooks/firestore';
-import { collection, query, orderBy, limit, addDoc, serverTimestamp, doc, setDoc, where } from 'firebase/firestore';
+import { collection, query, orderBy, limit, addDoc, serverTimestamp, doc, setDoc, where, onSnapshot, updateDoc, deleteDoc } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Message } from '../types';
-import { Send, User, Paperclip, Smile, FileText, Download, ExternalLink } from 'lucide-react';
+import { Send, User, Paperclip, Smile, FileText, Download, ExternalLink, MessageCircle, UserPlus, UserCheck, UserMinus, Clock, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../lib/firebase';
 import { useTheme } from '../context/ThemeContext';
 import { filterProfanity } from '../lib/profanity';
+import { Skeleton, ChatMessageSkeleton } from './Skeleton';
 
 interface ChatRoomProps {
   serverId: string | null;
   serverName?: string;
+  conversationId?: string | null;
+  conversationName?: string;
   onViewProfile?: (userId: string) => void;
   onChangeView?: (view: any) => void;
 }
 
-export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: ChatRoomProps) {
+export function ChatRoom({ serverId, serverName, conversationId, conversationName, onViewProfile, onChangeView }: ChatRoomProps) {
   const [user] = useAuthState(auth);
   const { backgroundMode } = useTheme();
   const [formValue, setFormValue] = useState('');
@@ -53,7 +56,7 @@ export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: 
     }
 
     setIsUploading(true);
-    const fileRef = ref(storage, `uploads/${serverId || 'global'}/${Date.now()}_${file.name}`);
+    const fileRef = ref(storage, `uploads/${serverId || conversationId || 'global'}/${Date.now()}_${file.name}`);
 
     try {
       const snapshot = await uploadBytes(fileRef, file);
@@ -98,11 +101,24 @@ export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: 
     }
   };
 
-  const messagesCollectionPath = serverId ? `servers/${serverId}/messages` : 'messages';
+  const messagesCollectionPath = serverId 
+    ? `servers/${serverId}/messages` 
+    : conversationId 
+      ? `conversations/${conversationId}/messages` 
+      : 'messages';
   const messagesRef = collection(db, messagesCollectionPath);
-  const q = query(messagesRef, orderBy('createdAt', 'asc'), limit(50));
+  
+  // Memoize the query to avoid unnecessary re-subscriptions
+  const q = React.useMemo(() => 
+    query(messagesRef, orderBy('createdAt', 'asc'), limit(50)),
+    [messagesCollectionPath]
+  );
+
   const [messagesSnapshot, loading, error] = useCollection(q);
-  const messages = messagesSnapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Message[];
+  const messages = React.useMemo(() => 
+    messagesSnapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Message[],
+    [messagesSnapshot]
+  );
 
   // Typing logic
   const typingRef = collection(db, 'typing');
@@ -234,9 +250,10 @@ export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: 
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-full space-y-4">
-        <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Waking up Firestore...</p>
+      <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-l border-slate-50 dark:border-slate-800">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 animate-in fade-in duration-500">
+          {[1, 2, 3, 4].map(i => <ChatMessageSkeleton key={i} />)}
+        </div>
       </div>
     );
   }
@@ -282,27 +299,35 @@ export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: 
       </AnimatePresence>
 
       {/* Message Feed */}
-      <div className={`flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar transition-all duration-700 ${
+      <div className={`flex-1 overflow-y-auto p-3 md:p-6 space-y-6 md:space-y-8 custom-scrollbar transition-all duration-700 ${
         backgroundMode === 'default' ? 'dark:bg-slate-900' : 'bg-transparent'
       }`}>
         <div className="flex items-center gap-4 py-2 text-slate-400 dark:text-slate-600">
           <div className="h-px bg-slate-100 dark:bg-slate-800 flex-1" />
           <span className="text-[10px] font-bold uppercase tracking-[0.2em]">
-            {serverName || 'Global Chat'}
+            {conversationName || serverName || 'Global Chat'}
           </span>
           <div className="h-px bg-slate-100 dark:bg-slate-800 flex-1" />
         </div>
 
         <AnimatePresence initial={false}>
-          {messages?.map((msg) => (
-            <div key={msg.id}>
-              <ChatMessage 
-                message={msg} 
-                isOwn={msg.senderId === user?.uid} 
-                onViewProfile={() => onViewProfile?.(msg.senderId)}
-              />
+          {messages?.length > 0 ? (
+            messages.map((msg) => (
+              <div key={msg.id}>
+                <ChatMessage 
+                  message={msg} 
+                  isOwn={msg.senderId === user?.uid} 
+                  onViewProfile={() => onViewProfile?.(msg.senderId)}
+                />
+              </div>
+            ))
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-600 opacity-50">
+              <MessageCircle size={48} className="mb-4" />
+              <p className="text-sm font-medium uppercase tracking-widest">Beginning of a conversation</p>
+              <p className="text-[10px] mt-1 tracking-tight">Say hello to the community!</p>
             </div>
-          ))}
+          )}
         </AnimatePresence>
 
         {/* Typing Indicators */}
@@ -332,14 +357,14 @@ export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: 
       </div>
 
       {/* Input Bar */}
-      <div className={`p-6 pt-0 border-t transition-all duration-500 ${
+      <div className={`p-4 md:p-6 pt-0 border-t transition-all duration-500 ${
         backgroundMode === 'default' 
           ? 'bg-white dark:bg-slate-900 border-slate-50 dark:border-slate-800' 
           : 'bg-white/10 dark:bg-white/5 border-white/5 backdrop-blur-md rounded-t-3xl'
       }`}>
-        <form onSubmit={sendMessage} className="relative flex flex-col gap-3">
+        <form onSubmit={sendMessage} className="relative flex flex-col gap-2 md:gap-3">
           <div className="relative group">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 flex gap-3 text-slate-400 group-focus-within:text-indigo-400 dark:group-focus-within:text-indigo-500 transition-colors z-10">
+            <div className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 flex gap-2 md:gap-3 text-slate-400 group-focus-within:text-indigo-400 dark:group-focus-within:text-indigo-500 transition-colors z-10">
               <input 
                 type="file" 
                 ref={fileInputRef} 
@@ -347,13 +372,13 @@ export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: 
                 className="hidden" 
               />
               <Paperclip 
-                size={18} 
+                size={16} 
                 className={`cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors ${isUploading ? 'animate-pulse text-indigo-400' : ''}`} 
                 onClick={() => !isUploading && fileInputRef.current?.click()}
               />
               <div className="relative" ref={emojiPickerRef}>
                 <Smile 
-                  size={18} 
+                  size={16} 
                   className={`cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors ${showEmojiPicker ? 'text-indigo-600' : ''}`}
                   onClick={() => setShowEmojiPicker(!showEmojiPicker)} 
                 />
@@ -364,12 +389,12 @@ export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: 
                       initial={{ opacity: 0, scale: 0.95, y: -10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                      className="absolute bottom-full left-0 mb-4 w-72 h-80 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 flex flex-col overflow-hidden z-[100]"
+                      className="absolute bottom-full left-0 mb-4 w-[280px] h-80 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 flex flex-col overflow-hidden z-[100]"
                     >
                       <div className="p-3 border-b border-slate-50 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex justify-between items-center">
                         <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Select Emoji</span>
                       </div>
-                      <div className="flex-1 overflow-y-auto p-3 grid grid-cols-6 gap-1 custom-scrollbar">
+                      <div className="flex-1 overflow-y-auto p-3 grid grid-cols-5 gap-1 custom-scrollbar">
                         {emojis.map((emoji, idx) => (
                           <button
                             key={idx}
@@ -391,17 +416,17 @@ export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: 
               value={formValue}
               onChange={(e) => setFormValue(e.target.value)}
               onPaste={handlePaste}
-              placeholder="Type your message..."
-              className="w-full pl-24 pr-24 py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-slate-700 transition-all outline-none placeholder-slate-400 dark:placeholder-slate-500 text-slate-700 dark:text-slate-100 shadow-inner"
+              placeholder="Message..."
+              className="w-full pl-16 md:pl-24 pr-16 md:pr-24 py-3 md:py-4 bg-slate-100 dark:bg-slate-800 border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-slate-700 transition-all outline-none placeholder-slate-400 dark:placeholder-slate-500 text-slate-700 dark:text-slate-100 shadow-inner"
             />
 
-            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <div className="absolute right-2 md:right-3 top-1/2 -translate-y-1/2">
               <button
                 type="submit"
                 disabled={!formValue.trim()}
-                className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-indigo-100 flex items-center gap-2"
+                className="p-2 md:px-5 md:py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-md flex items-center gap-2"
               >
-                Send <Send size={12} className="fill-current" />
+                <span className="hidden md:inline">Send</span> <Send size={14} className="fill-current" />
               </button>
             </div>
           </div>
@@ -419,10 +444,57 @@ export function ChatRoom({ serverId, serverName, onViewProfile, onChangeView }: 
   );
 }
 
-function ChatMessage({ message, isOwn, onViewProfile }: { message: Message; isOwn: boolean; onViewProfile?: () => void }) {
-  const { text, senderName, senderPhotoUrl, fileUrl, fileName, fileType } = message;
+function ChatMessage({ message, isOwn, onViewProfile, onStartDM }: { message: Message; isOwn: boolean; onViewProfile?: () => void; onStartDM?: (uid: string) => void }) {
+  const { text, senderName, senderPhotoUrl, fileUrl, fileName, fileType, senderId } = message;
+  const [showPopover, setShowPopover] = useState(false);
+  const [friendship, setFriendship] = useState<any>(null);
+  const [loadingFriendship, setLoadingFriendship] = useState(false);
+  const [user] = useAuthState(auth);
 
   const isImage = fileType?.startsWith('image/');
+
+  useEffect(() => {
+    if (showPopover && !isOwn && user && senderId) {
+      setLoadingFriendship(true);
+      const friendshipId = [user.uid, senderId].sort().join('_');
+      const unsub = onSnapshot(doc(db, 'friendships', friendshipId), (snap) => {
+        if (snap.exists()) {
+          setFriendship({ id: snap.id, ...snap.data() });
+        } else {
+          setFriendship(null);
+        }
+        setLoadingFriendship(false);
+      });
+      return () => unsub();
+    }
+  }, [showPopover, isOwn, user, senderId]);
+
+  const handleFriendAction = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user || !senderId) return;
+    const friendshipId = [user.uid, senderId].sort().join('_');
+    
+    try {
+      if (!friendship) {
+        await setDoc(doc(db, 'friendships', friendshipId), {
+          users: [user.uid, senderId],
+          status: 'pending',
+          requesterId: user.uid,
+          updatedAt: serverTimestamp()
+        });
+      } else if (friendship.status === 'pending' && friendship.requesterId !== user.uid) {
+        await updateDoc(doc(db, 'friendships', friendshipId), {
+          status: 'accepted',
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        if (friendship.status === 'accepted' && !window.confirm('Delete friend?')) return;
+        await deleteDoc(doc(db, 'friendships', friendshipId));
+      }
+    } catch (err) {
+      console.error("Friend action error:", err);
+    }
+  };
 
   return (
     <motion.div
@@ -432,20 +504,98 @@ function ChatMessage({ message, isOwn, onViewProfile }: { message: Message; isOw
       layout
       className={`flex gap-4 ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}
     >
-      <motion.div 
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={onViewProfile}
-        className={`w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden shrink-0 shadow-sm border border-slate-100 dark:border-slate-800 cursor-pointer ${isOwn ? 'bg-slate-800' : 'bg-indigo-100 dark:bg-indigo-900/30'}`}
+      <div 
+        className="relative"
+        onMouseEnter={() => setShowPopover(true)}
+        onMouseLeave={() => setShowPopover(false)}
       >
-        {senderPhotoUrl ? (
-          <img src={senderPhotoUrl} alt={senderName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-        ) : (
-          <div className={`font-bold ${isOwn ? 'text-white' : 'text-indigo-700 dark:text-indigo-400'}`}>
-            {senderName.charAt(0).toUpperCase()}
-          </div>
-        )}
-      </motion.div>
+        <motion.div 
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={onViewProfile}
+          className={`w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden shrink-0 shadow-sm border border-slate-100 dark:border-slate-800 cursor-pointer ${isOwn ? 'bg-slate-800' : 'bg-indigo-100 dark:bg-indigo-900/30'}`}
+        >
+          {senderPhotoUrl ? (
+            <img src={senderPhotoUrl} alt={senderName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          ) : (
+            <div className={`font-bold ${isOwn ? 'text-white' : 'text-indigo-700 dark:text-indigo-400'}`}>
+              {senderName.charAt(0).toUpperCase()}
+            </div>
+          )}
+        </motion.div>
+
+        <AnimatePresence>
+          {showPopover && !isOwn && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 10 }}
+              className={`absolute bottom-full mb-2 ${isOwn ? 'right-0' : 'left-0'} z-[100] w-48 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-3 overflow-hidden`}
+            >
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center overflow-hidden">
+                    {senderPhotoUrl ? <img src={senderPhotoUrl} className="w-full h-full object-cover" /> : <User size={16} className="text-indigo-500" />}
+                  </div>
+                  <div className="overflow-hidden">
+                    <p className="text-[10px] font-black uppercase text-slate-900 dark:text-white truncate">{senderName}</p>
+                    <p className="text-[8px] text-slate-400 uppercase tracking-widest truncate">Chat Peer</p>
+                  </div>
+                </div>
+
+                <div className="h-px bg-slate-50 dark:bg-slate-700/50 -mx-3 mb-1" />
+
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onViewProfile?.(); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400 transition-colors"
+                >
+                  <User size={12} /> View Profile
+                </button>
+
+                {loadingFriendship ? (
+                  <div className="flex justify-center py-1">
+                    <Loader2 size={12} className="animate-spin text-slate-300" />
+                  </div>
+                ) : (
+                  <>
+                    <button 
+                      onClick={handleFriendAction}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                        !friendship 
+                          ? 'bg-indigo-500 text-white hover:bg-indigo-600' 
+                          : friendship.status === 'accepted'
+                            ? 'text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20'
+                            : friendship.requesterId === user?.uid
+                              ? 'bg-slate-100 dark:bg-slate-700 text-slate-400'
+                              : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                      }`}
+                    >
+                      {!friendship ? (
+                        <><UserPlus size={12} /> Add Friend</>
+                      ) : friendship.status === 'accepted' ? (
+                        <><UserMinus size={12} /> Unfriend</>
+                      ) : friendship.requesterId === user?.uid ? (
+                        <><Clock size={12} /> Pending</>
+                      ) : (
+                        <><UserCheck size={12} /> Accept</>
+                      )}
+                    </button>
+
+                    {friendship?.status === 'accepted' && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onStartDM?.(senderId); }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-[10px] font-bold uppercase tracking-widest"
+                      >
+                        <MessageCircle size={12} /> Message
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
         <div className={`flex items-center gap-2 mb-1.5 ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>

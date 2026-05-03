@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { User, Camera, Save, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { doc, getDoc, updateDoc, serverTimestamp, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { User, Camera, Save, Loader2, CheckCircle2, AlertCircle, UserPlus, UserMinus, UserCheck, MessageSquare, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from '../context/ThemeContext';
+import { ProfileSkeleton } from './Skeleton';
 
 interface ProfileProps {
   targetUserId?: string | null;
+  onStartDM?: (userId: string) => void;
 }
 
-export function Profile({ targetUserId }: ProfileProps) {
+export function Profile({ targetUserId, onStartDM }: ProfileProps) {
   const [user] = useAuthState(auth);
   const { backgroundMode, setBackgroundMode } = useTheme();
   const isOwnProfile = !targetUserId || targetUserId === user?.uid;
@@ -23,6 +25,8 @@ export function Profile({ targetUserId }: ProfileProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  
+  const [friendship, setFriendship] = useState<any>(null);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -41,13 +45,10 @@ export function Profile({ targetUserId }: ProfileProps) {
             setBackgroundMode(data.backgroundMode);
           }
           
-          // Try to get username from users collection if it's our own profile or if it's public
-          const userDoc = await getDoc(doc(db, 'users', profileId));
-          if (userDoc.exists()) {
-            setUsername(userDoc.data().username || '');
-          }
+          // Use username from profiles (it's synced there)
+          setUsername(data.username || '');
         } else if (isOwnProfile) {
-          // If own profile doesn't exist in 'profiles' yet, check 'users'
+          // Fallback to 'users' ONLY for own profile
           const userDoc = await getDoc(doc(db, 'users', profileId));
           if (userDoc.exists()) {
             setDisplayName(userDoc.data().displayName || '');
@@ -62,7 +63,49 @@ export function Profile({ targetUserId }: ProfileProps) {
     };
 
     fetchProfile();
-  }, [profileId, isOwnProfile]);
+    
+    // Listen for friendship changes
+    if (!isOwnProfile && user && profileId) {
+      const friendshipId = [user.uid, profileId].sort().join('_');
+      const unsub = onSnapshot(doc(db, 'friendships', friendshipId), (snap) => {
+        if (snap.exists()) {
+          setFriendship({ id: snap.id, ...snap.data() });
+        } else {
+          setFriendship(null);
+        }
+      });
+      return () => unsub();
+    }
+  }, [profileId, isOwnProfile, user]);
+
+  const handleFriendAction = async () => {
+    if (!user || !profileId) return;
+    const friendshipId = [user.uid, profileId].sort().join('_');
+    
+    try {
+      if (!friendship) {
+        // Send request
+        await setDoc(doc(db, 'friendships', friendshipId), {
+          users: [user.uid, profileId],
+          status: 'pending',
+          requesterId: user.uid,
+          updatedAt: serverTimestamp()
+        });
+      } else if (friendship.status === 'pending' && friendship.requesterId !== user.uid) {
+        // Accept request
+        await updateDoc(doc(db, 'friendships', friendshipId), {
+          status: 'accepted',
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        // Cancel or remove friend
+        if (friendship.status === 'accepted' && !window.confirm('Delete friend?')) return;
+        await deleteDoc(doc(db, 'friendships', friendshipId));
+      }
+    } catch (err) {
+      console.error("Friend action error:", err);
+    }
+  };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,14 +146,14 @@ export function Profile({ targetUserId }: ProfileProps) {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white">
-        <Loader2 size={32} className="text-indigo-600 animate-spin" />
+      <div className="flex-1 overflow-y-auto p-4 md:p-12">
+        <ProfileSkeleton />
       </div>
     );
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto custom-scrollbar p-6 md:p-12 transition-all duration-700 ${
+    <div className={`flex-1 overflow-y-auto custom-scrollbar p-4 md:p-12 transition-all duration-700 ${
       backgroundMode === 'default' ? 'bg-slate-50 dark:bg-slate-950' : 'bg-transparent'
     }`}>
       <div className="max-w-2xl mx-auto">
@@ -165,6 +208,49 @@ export function Profile({ targetUserId }: ProfileProps) {
                   <p className="text-indigo-600 dark:text-indigo-400 font-black text-xs uppercase tracking-widest mt-1">@{username}</p>
                 )}
               </div>
+
+              {!isOwnProfile && (
+                <div className="flex gap-2">
+                  {friendship?.status === 'accepted' && (
+                    <motion.button 
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      type="button"
+                      onClick={() => onStartDM?.(profileId!)}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-xl text-xs font-bold uppercase tracking-widest shadow-lg shadow-indigo-200 dark:shadow-none"
+                    >
+                      <MessageSquare size={16} />
+                      Message
+                    </motion.button>
+                  )}
+                  
+                  <motion.button 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    type="button"
+                    onClick={handleFriendAction}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+                      !friendship 
+                        ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900' 
+                        : friendship.status === 'accepted'
+                          ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                          : friendship.requesterId === user?.uid
+                            ? 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                            : 'bg-emerald-500 text-white animate-pulse'
+                    }`}
+                  >
+                    {!friendship ? (
+                      <><UserPlus size={16} /> Add Friend</>
+                    ) : friendship.status === 'accepted' ? (
+                      <><UserCheck size={16} /> Friends</>
+                    ) : friendship.requesterId === user?.uid ? (
+                      <><Clock size={16} /> Pending</>
+                    ) : (
+                      <><UserCheck size={16} /> Accept Request</>
+                    )}
+                  </motion.button>
+                </div>
+              )}
             </motion.div>
 
             <AnimatePresence mode="wait">

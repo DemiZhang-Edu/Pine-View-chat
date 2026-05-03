@@ -22,22 +22,29 @@ import {
   Sun,
   Moon,
   Palette,
-  Newspaper
+  Newspaper,
+  X,
+  Menu
 } from 'lucide-react';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useTheme } from '../context/ThemeContext';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { collection, query, where, onSnapshot, orderBy, collectionGroup, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, collectionGroup, doc, setDoc, serverTimestamp, getDoc, getDocs, limit } from 'firebase/firestore';
 import { CreateServerModal } from './CreateServerModal';
 import { JoinServerModal } from './JoinServerModal';
 import { Auth } from './Auth';
+import { SidebarItemSkeleton } from './Skeleton';
 
 interface SidebarProps {
   activeView: string;
   setActiveView: (view: any) => void;
   activeServerId: string | null;
   setActiveServerId: (id: string | null) => void;
+  activeConversationId?: string | null;
+  setActiveConversationId?: (id: string | null) => void;
   onViewProfile?: (userId: string) => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 interface Server {
@@ -47,15 +54,28 @@ interface Server {
   ownerId: string;
 }
 
-export function Sidebar({ activeView, setActiveView, activeServerId, setActiveServerId, onViewProfile }: SidebarProps) {
+export function Sidebar({ 
+  activeView, 
+  setActiveView, 
+  activeServerId, 
+  setActiveServerId, 
+  activeConversationId, 
+  setActiveConversationId, 
+  onViewProfile,
+  isOpen,
+  onClose
+}: SidebarProps) {
   const [user] = useAuthState(auth);
   const { theme, toggleTheme, backgroundMode, setBackgroundMode } = useTheme();
   const [servers, setServers] = useState<Server[]>([]);
   const [loadingServers, setLoadingServers] = useState(true);
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [loadingConvs, setLoadingConvs] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showAtmosphereMenu, setShowAtmosphereMenu] = useState(false);
   const [hoveredAtmosphere, setHoveredAtmosphere] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   const handleSetAtmosphere = async (mode: any) => {
     setBackgroundMode(mode);
@@ -77,48 +97,83 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
     if (!user) {
       setServers([]);
       setLoadingServers(false);
+      setConversations([]);
+      setLoadingConvs(false);
       return;
     }
 
-    // 1. List of memberships
+    // 1. Listen to memberships
     const membersQuery = query(collectionGroup(db, 'members'), where('userId', '==', user.uid));
-    
-    // 2. Fetch all servers (since they are public if you are a member or have invite)
-    // We listen to the whole collection once and filter locally based on the memberships
-    const serversRef = collection(db, 'servers');
-    
-    let currentServerIds: string[] = [];
+    let unsubSrv: (() => void) | null = null;
 
     const unsubMembers = onSnapshot(membersQuery, (snapshot) => {
-      currentServerIds = snapshot.docs.map(doc => doc.ref.parent.parent?.id).filter(Boolean) as string[];
-      if (currentServerIds.length === 0) {
+      // Clean up previous server listener
+      if (unsubSrv) {
+        unsubSrv();
+        unsubSrv = null;
+      }
+
+      const serverIds = snapshot.docs.map(doc => doc.ref.parent.parent?.id).filter(Boolean) as string[];
+      
+      if (serverIds.length === 0) {
         setServers([]);
         setLoadingServers(false);
+        return;
       }
+
+      // 2. Fetch servers that current user is a member of
+      const srvQuery = query(collection(db, 'servers'), where('__name__', 'in', serverIds));
+      
+      unsubSrv = onSnapshot(srvQuery, (srvSnapshot) => {
+        const srvs = srvSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Server));
+        setServers(srvs);
+        setLoadingServers(false);
+      }, (err) => {
+        console.error("Error in servers listener:", err);
+        setLoadingServers(false);
+      });
     }, (error) => {
       console.error("Error fetching memberships:", error);
+      setLoadingServers(false);
     });
 
-    const unsubServers = onSnapshot(serversRef, (srvSnapshot) => {
-      const srvs = srvSnapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Server))
-        .filter(s => currentServerIds.includes(s.id));
-      
-      setServers(srvs);
-      setLoadingServers(false);
+    // 3. Listen to conversations
+    const convQuery = query(
+      collection(db, 'conversations'), 
+      where('participants', 'array-contains', user.uid),
+      orderBy('updatedAt', 'desc')
+    );
+    const unsubConvs = onSnapshot(convQuery, async (snapshot) => {
+      const convData: any[] = [];
+      for (const d of snapshot.docs) {
+        const data = d.data();
+        const otherId = data.participants.find((id: string) => id !== user.uid);
+        if (otherId) {
+          const profileDoc = await getDoc(doc(db, 'profiles', otherId));
+          convData.push({
+            id: d.id,
+            ...data,
+            otherUser: profileDoc.exists() ? { uid: otherId, ...profileDoc.data() } : { uid: otherId, displayName: 'User' }
+          });
+        }
+      }
+      setConversations(convData);
+      setLoadingConvs(false);
     }, (err) => {
-      console.error("Error in servers listener:", err);
-      setLoadingServers(false);
+      console.error("Error fetching conversations:", err);
+      setLoadingConvs(false);
     });
 
     return () => {
       unsubMembers();
-      unsubServers();
+      if (unsubSrv) unsubSrv();
+      unsubConvs();
     };
   }, [user]);
 
   const navItems = [
     { id: 'home', icon: HomeIcon, label: 'Home' },
+    { id: 'friends', icon: Users, label: 'Friends' },
     { id: 'news', icon: Newspaper, label: 'News' },
     { id: 'chat', icon: MessageSquare, label: 'Global Chat' },
     { id: 'profile', icon: UserIcon, label: 'Profile' },
@@ -130,21 +185,97 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
   }
 
   return (
-    <motion.aside 
-      initial={{ x: -20, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      transition={{ duration: 0.5, ease: "easeOut" }}
-      className={`w-64 flex flex-col shrink-0 border-r transition-all duration-700 z-20 ${
-        backgroundMode === 'default'
-          ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-lg'
-          : 'bg-white/30 dark:bg-slate-950/30 backdrop-blur-xl border-white/20 dark:border-white/5'
-      }`}
-    >
-      <div className="p-6 border-b border-slate-200 dark:border-slate-800">
-        <Logo />
-      </div>
+    <>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      <motion.aside 
+        initial={false}
+        animate={{ 
+          x: (isOpen || window.innerWidth >= 1024) ? 0 : -320,
+          opacity: 1
+        }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className={`fixed lg:relative top-0 left-0 bottom-0 w-64 flex flex-col shrink-0 border-r transition-all duration-300 z-50 lg:z-20 ${
+          backgroundMode === 'default'
+            ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xl'
+            : 'bg-white/30 dark:bg-slate-950/30 backdrop-blur-xl border-white/20 dark:border-white/5'
+        }`}
+      >
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <Logo />
+          <button 
+            onClick={onClose}
+            className="lg:hidden p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       
-      <div className="flex-1 py-6 overflow-y-auto custom-scrollbar">
+      <div className="px-6 mb-4">
+        <div className="relative group">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={14} />
+          <input 
+            type="text" 
+            placeholder="Search users..." 
+            className="w-full pl-9 pr-3 py-2 bg-slate-100 dark:bg-slate-800/50 border-none rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all outline-none"
+            onChange={async (e) => {
+              const val = e.target.value.trim().toLowerCase();
+              if (val.length < 2) {
+                setSearchResults([]);
+                return;
+              }
+              const q = query(
+                collection(db, 'profiles'), 
+                where('username', '>=', val),
+                where('username', '<=', val + '\uf8ff'),
+                limit(5)
+              );
+              const snap = await getDocs(q);
+              setSearchResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            }}
+          />
+          
+          <AnimatePresence>
+            {searchResults.length > 0 && (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 p-2 z-50 max-h-48 overflow-y-auto"
+              >
+                {searchResults.map((res: any) => (
+                  <button 
+                    key={res.id}
+                    onClick={() => {
+                      onViewProfile?.(res.id);
+                      setSearchResults([]);
+                    }}
+                    className="w-full flex items-center gap-2 p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-lg transition-colors text-left"
+                  >
+                    <img src={res.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${res.username}`} className="w-6 h-6 rounded-full" />
+                    <div className="overflow-hidden">
+                      <p className="text-[10px] font-bold text-slate-900 dark:text-white truncate uppercase tracking-tight">{res.displayName}</p>
+                      <p className="text-[8px] text-slate-400 truncate tracking-widest uppercase">@{res.username}</p>
+                    </div>
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      <div className="flex-1 py-2 overflow-y-auto custom-scrollbar">
         <motion.div 
           initial="hidden"
           animate="visible"
@@ -167,6 +298,7 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
                 onClick={() => {
                   setActiveView(item.id);
                   setActiveServerId(null);
+                  if (window.innerWidth < 1024) onClose?.();
                 }}
                 className={`w-full px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors ${
                   activeView === item.id && !activeServerId ? 'bg-indigo-600/10 dark:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'
@@ -212,8 +344,8 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
           </div>
           <div className="space-y-1">
             {loadingServers ? (
-              <div className="flex py-4 justify-center">
-                <Loader2 size={14} className="animate-spin text-slate-300 dark:text-slate-700" />
+              <div className="space-y-1">
+                {[1, 2, 3].map(i => <SidebarItemSkeleton key={i} />)}
               </div>
             ) : servers.length > 0 ? (
               servers.map((server) => (
@@ -228,6 +360,7 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
                   onClick={() => {
                     setActiveServerId(server.id);
                     setActiveView('chat');
+                    if (window.innerWidth < 1024) onClose?.();
                   }}
                   className={`w-full px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors ${
                     activeServerId === server.id ? 'bg-indigo-600/10 dark:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'
@@ -251,6 +384,53 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
                     Join One
                   </button>
                 </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Direct Messages Section */}
+        <motion.div 
+          initial="hidden"
+          animate="visible"
+          variants={{
+            visible: { transition: { staggerChildren: 0.05, delayChildren: 0.4 } }
+          }}
+          className="px-4 mb-8"
+        >
+          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3 px-3">Direct Messages</div>
+          <div className="space-y-1">
+            {loadingConvs ? (
+              <div className="space-y-1">
+                {[1, 2].map(i => <SidebarItemSkeleton key={i} />)}
+              </div>
+            ) : conversations.length > 0 ? (
+              conversations.map((conv) => (
+                <motion.button 
+                  key={conv.id}
+                  variants={{
+                    hidden: { opacity: 0, x: -10 },
+                    visible: { opacity: 1, x: 0 }
+                  }}
+                  whileHover={{ x: 4 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    setActiveConversationId?.(conv.id);
+                    setActiveServerId(null);
+                    setActiveView('dm');
+                    if (window.innerWidth < 1024) onClose?.();
+                  }}
+                  className={`w-full px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors ${
+                    activeView === 'dm' && activeConversationId === conv.id ? 'bg-indigo-600/10 dark:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                  }`}
+                >
+                  <img src={conv.otherUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${conv.otherUser.username}`} className="w-5 h-5 rounded-full shrink-0" />
+                  <span className="truncate flex-1 text-left">{conv.otherUser.displayName}</span>
+                </motion.button>
+              ))
+            ) : (
+              <div className="px-3 py-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg text-center opacity-50">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-600 uppercase tracking-wider">No DMs yet</p>
+              </div>
             )}
           </div>
         </motion.div>
@@ -398,5 +578,6 @@ export function Sidebar({ activeView, setActiveView, activeServerId, setActiveSe
         )}
       </AnimatePresence>
     </motion.aside>
+    </>
   );
 }

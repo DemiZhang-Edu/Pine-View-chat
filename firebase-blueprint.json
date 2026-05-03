@@ -109,6 +109,29 @@
         },
         "required": ["title", "content", "authorId", "authorName", "createdAt"]
     },
+    "Friendship": {
+        "title": "Friendship",
+        "description": "A relationship between two users",
+        "type": "object",
+        "properties": {
+            "users": { "type": "array", "items": { "type": "string" }, "description": "Array of 2 UIDs" },
+            "status": { "type": "string", "enum": ["pending", "accepted"] },
+            "requesterId": { "type": "string", "description": "UID of user who sent the request" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["users", "status", "requesterId", "updatedAt"]
+    },
+    "Conversation": {
+        "title": "Conversation",
+        "description": "A private chat between users",
+        "type": "object",
+        "properties": {
+            "participants": { "type": "array", "items": { "type": "string" } },
+            "lastMessage": { "type": "string" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["participants", "updatedAt"]
+    },
     "Alert": {
         "title": "Profanity Alert",
         "description": "Logged when a user triggers the profanity filter",
@@ -177,6 +200,18 @@
     "news": {
         "schema": "News",
         "description": "School news and activity feed"
+    },
+    "friendships": {
+        "schema": "Friendship",
+        "description": "User peer-to-peer relationships"
+    },
+    "conversations": {
+        "schema": "Conversation",
+        "description": "Direct message threads"
+    },
+    "conversations/{convId}/messages": {
+        "schema": "Message",
+        "description": "Private messages in a conversation"
     }
   }
 }

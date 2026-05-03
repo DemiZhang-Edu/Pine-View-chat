@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Message } from '../types';
 import { Logo } from './Logo';
 import { useTheme } from '../context/ThemeContext';
+import { HomeMessageSkeleton } from './Skeleton';
 
 interface HomeProps {
   onStartChat: () => void;
@@ -33,7 +34,7 @@ export function Home({ onStartChat, onViewProfile }: HomeProps) {
   const messages = messagesSnapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Message[];
 
   return (
-    <div className={`p-8 max-w-6xl mx-auto space-y-12 overflow-y-auto h-full custom-scrollbar transition-all duration-700 ${
+    <div className={`p-4 md:p-8 max-w-6xl mx-auto space-y-8 md:space-y-12 overflow-y-auto h-full custom-scrollbar transition-all duration-700 ${
       backgroundMode === 'default' ? 'dark:bg-slate-900' : 'bg-transparent'
     }`}>
       {/* Welcome Section */}
@@ -103,10 +104,9 @@ export function Home({ onStartChat, onViewProfile }: HomeProps) {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-500"
+                  className="divide-y divide-slate-50 dark:divide-slate-800"
                 >
-                  <Loader2 size={32} className="animate-spin mb-4" />
-                  <p className="text-sm font-medium">Syncing activity...</p>
+                  {[1, 2, 3].map(i => <HomeMessageSkeleton key={i} />)}
                 </motion.div>
               ) : messages && messages.length > 0 ? (
                 <motion.div 
@@ -146,7 +146,7 @@ export function Home({ onStartChat, onViewProfile }: HomeProps) {
                           </p>
                           <span className="text-[10px] font-bold text-slate-300 dark:text-slate-600 flex items-center gap-1 shrink-0">
                             <Clock size={10} />
-                            {message.createdAt?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Just now'}
+                            {message.createdAt?.toDate?.()?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Just now'}
                           </span>
                         </div>
                         <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5 line-clamp-1 italic">

@@ -20,18 +20,22 @@ import { Profile } from './components/Profile';
 import { AdminPanel } from './components/AdminPanel';
 import { News } from './components/News';
 import { Settings } from './components/Settings';
+import { Friends } from './components/Friends';
 import { Sidebar } from './components/Sidebar';
 import { Logo } from './components/Logo';
-import { MessageCircle, Hash, MessageSquare, Users, Settings as SettingsIcon, Github, Home as HomeIcon, Plus, User as UserIcon } from 'lucide-react';
+import { MessageCircle, Hash, MessageSquare, Users, Settings as SettingsIcon, Github, Home as HomeIcon, Plus, User as UserIcon, Shield, Menu, X, Newspaper } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from './context/ThemeContext';
+import { getDocs, query, collection, where, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function App() {
   const [user, loading] = useAuthState(auth);
   const { backgroundMode } = useTheme();
-  const [view, setView] = useState<'home' | 'chat' | 'profile' | 'admin' | 'news' | 'settings'>('home');
+  const [view, setView] = useState<'home' | 'chat' | 'profile' | 'admin' | 'news' | 'settings' | 'friends' | 'dm'>('home');
   const [activeServerId, setActiveServerId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const viewProfile = (userId: string) => {
     setTargetProfileId(userId);
@@ -39,13 +43,59 @@ export default function App() {
   };
 
   const viewServer = (serverId: string) => {
+    setActiveConversationId(null);
     setActiveServerId(serverId);
     setView('chat');
+  };
+
+  const startDM = async (targetUserId: string) => {
+    if (!user) return;
+    
+    // Check if conversation already exists
+    const q = query(
+      collection(db, 'conversations'), 
+      where('participants', 'array-contains', user.uid)
+    );
+    const snapshot = await getDocs(q);
+    const existing = snapshot.docs.find(d => d.data().participants.includes(targetUserId));
+    
+    if (existing) {
+      setActiveConversationId(existing.id);
+      setActiveServerId(null);
+      setView('dm');
+    } else {
+      // Create new conversation
+      const newConv = await addDoc(collection(db, 'conversations'), {
+        participants: [user.uid, targetUserId],
+        updatedAt: serverTimestamp()
+      });
+      setActiveConversationId(newConv.id);
+      setActiveServerId(null);
+      setView('dm');
+    }
   };
 
   // Fetch active server data if any
   const serverDocRef = activeServerId ? doc(db, 'servers', activeServerId) : null;
   const [activeServer] = useDocumentData(serverDocRef) as any;
+
+  // Fetch active conversation data if any
+  const convDocRef = activeConversationId ? doc(db, 'conversations', activeConversationId) : null;
+  const [activeConv] = useDocumentData(convDocRef) as any;
+  const [otherUser, setOtherUser] = useState<any>(null);
+
+  React.useEffect(() => {
+    if (activeConv && user) {
+      const otherId = activeConv.participants.find((id: string) => id !== user.uid);
+      if (otherId) {
+        getDocs(query(collection(db, 'profiles'), where('__name__', '==', otherId))).then(snap => {
+          if (!snap.empty) setOtherUser({ uid: otherId, ...snap.docs[0].data() });
+        });
+      }
+    } else {
+      setOtherUser(null);
+    }
+  }, [activeConv, user]);
 
   // Reset view when user logs out
   React.useEffect(() => {
@@ -53,6 +103,7 @@ export default function App() {
       setView('home');
       setActiveServerId(null);
       setTargetProfileId(null);
+      setActiveConversationId(null);
     }
   }, [user, loading]);
 
@@ -60,37 +111,58 @@ export default function App() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 overflow-hidden">
         <motion.div 
-          initial={{ opacity: 0, scale: 0.8 }}
+          initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-          className="flex flex-col items-center gap-6"
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          className="flex flex-col items-center gap-8"
         >
           <div className="relative">
-            {/* Pulse Effect */}
+            {/* Soft Breathing Ambient Light */}
             <motion.div 
-              animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.1, 0.3] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="absolute inset-0 bg-indigo-500 rounded-2xl blur-xl"
+              animate={{ 
+                scale: [1, 1.3, 1], 
+                opacity: [0.3, 0.5, 0.3],
+                filter: ["blur(40px)", "blur(60px)", "blur(40px)"]
+              }}
+              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+              className="absolute inset-0 bg-indigo-500 rounded-full"
             />
-            <div className="relative w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-indigo-500/40">
-              <MessageCircle size={40} className="text-white" />
-            </div>
+            
+            <motion.div 
+              animate={{ 
+                y: [-4, 4, -4],
+                rotate: [-2, 2, -2]
+              }}
+              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+              className="relative w-24 h-24 bg-indigo-600 rounded-[2rem] flex items-center justify-center shadow-[0_20px_50px_rgba(79,70,229,0.4)]"
+            >
+              <MessageCircle size={48} className="text-white" />
+            </motion.div>
           </div>
           
-          <div className="text-center space-y-4">
-            <motion.h1 
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="text-4xl font-black text-white tracking-tighter"
+          <div className="text-center space-y-6">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3, duration: 0.6 }}
             >
-              PV<span className="text-indigo-400 font-medium">Chat</span>
-            </motion.h1>
-            <div className="w-32 h-1.5 bg-slate-800 rounded-full mx-auto overflow-hidden">
+              <h1 className="text-5xl font-black text-white tracking-tighter">
+                PV<span className="text-indigo-400 font-medium">Chat</span>
+              </h1>
+              <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.3em] mt-2">Initializing Experience</p>
+            </motion.div>
+
+            <div className="w-48 h-1 bg-slate-800 rounded-full mx-auto overflow-hidden relative">
               <motion.div 
-                animate={{ x: ["-100%", "100%"] }}
-                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                className="w-1/2 h-full bg-indigo-500 rounded-full"
+                animate={{ 
+                  x: ["-100%", "100%"] 
+                }}
+                transition={{ 
+                  duration: 2, 
+                  repeat: Infinity, 
+                  ease: "easeInOut" 
+                }}
+                className="absolute inset-0 w-full h-full bg-indigo-500 rounded-full"
               />
             </div>
           </div>
@@ -108,16 +180,27 @@ export default function App() {
       <Sidebar 
         activeView={view} 
         setActiveView={(v) => {
-          if (v !== 'profile' && v !== 'admin') setTargetProfileId(null);
+          if (v !== 'profile' && v !== 'admin' && v !== 'dm') {
+            setTargetProfileId(null);
+            setActiveConversationId(null);
+          }
           setView(v);
         }}
         activeServerId={activeServerId} 
         setActiveServerId={setActiveServerId}
+        activeConversationId={activeConversationId}
+        setActiveConversationId={(id) => {
+          setActiveConversationId(id);
+          setActiveServerId(null);
+          setView('dm');
+        }}
         onViewProfile={viewProfile}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
       {/* Main Area */}
-      <main className={`flex-1 flex flex-col overflow-hidden relative transition-all duration-700 ${
+      <main className={`flex-1 flex flex-col overflow-hidden relative transition-all duration-700 w-full ${
         backgroundMode === 'default' 
           ? 'bg-white dark:bg-slate-900 shadow-xl' 
           : 'bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border-l border-white/20 dark:border-white/5 shadow-2xl'
@@ -125,30 +208,38 @@ export default function App() {
         <AnimatePresence mode="wait">
           {user ? (
             <motion.div 
-              key={view + (activeServerId || 'global') + (targetProfileId || '')}
+              key={view + (activeServerId || activeConversationId || 'global') + (targetProfileId || '')}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
               className="flex-1 flex flex-col overflow-hidden"
             >
-              {view === 'chat' && (
+              {(view === 'chat' || view === 'dm') && (
                 <>
-                  <header className={`h-16 shrink-0 z-10 border-b px-6 flex items-center justify-between transition-all duration-500 ${
+                  <header className={`h-16 shrink-0 z-10 border-b px-4 lg:px-6 flex items-center justify-between transition-all duration-500 ${
                     backgroundMode === 'default'
                       ? 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
                       : 'border-white/20 dark:border-white/5 bg-white/40 dark:bg-white/5 backdrop-blur-md shadow-sm'
                   }`}>
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${activeServerId ? 'bg-slate-900 dark:bg-slate-800 text-white' : 'bg-indigo-600 text-white'}`}>
-                        {activeServerId ? activeServer?.name?.charAt(0).toUpperCase() : <Hash size={20} />}
+                    <div className="flex items-center gap-3 lg:gap-4">
+                      {/* Mobile Sidebar Toggle */}
+                      <button 
+                        onClick={() => setIsSidebarOpen(true)}
+                        className="p-2 -ml-2 text-slate-500 lg:hidden rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <Menu size={20} />
+                      </button>
+
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${activeServerId || activeConversationId ? 'bg-slate-900 dark:bg-slate-800 text-white' : 'bg-indigo-600 text-white'}`}>
+                        {activeServerId ? activeServer?.name?.charAt(0).toUpperCase() : activeConversationId ? <UserIcon size={20} /> : <Hash size={20} />}
                       </div>
-                      <div>
-                        <h2 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                          {activeServerId ? activeServer?.name : 'global chat'}
+                      <div className="overflow-hidden">
+                        <h2 className="font-bold text-slate-900 dark:text-white flex items-center gap-2 truncate">
+                          {activeServerId ? activeServer?.name : activeConversationId ? otherUser?.displayName || 'Chat' : 'global chat'}
                         </h2>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                          {activeServerId ? (activeServer?.description || 'Guild Space') : 'Global Public Channel'} &bull; Real-time
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider truncate">
+                          {activeServerId ? (activeServer?.description || 'Guild Space') : activeConversationId ? `Private with ${otherUser?.displayName || 'user'}` : 'Global Channel'}
                         </p>
                       </div>
                     </div>
@@ -174,6 +265,8 @@ export default function App() {
                     <ChatRoom 
                       serverId={activeServerId} 
                       serverName={activeServerId ? activeServer?.name : 'Global Chat'} 
+                      conversationId={activeConversationId}
+                      conversationName={otherUser?.displayName}
                       onViewProfile={viewProfile}
                       onChangeView={setView}
                     />
@@ -189,7 +282,17 @@ export default function App() {
               )}
 
               {view === 'profile' && (
-                <Profile targetUserId={targetProfileId} />
+                <Profile 
+                  targetUserId={targetProfileId} 
+                  onStartDM={startDM}
+                />
+              )}
+
+              {view === 'friends' && (
+                <Friends 
+                  onStartDM={startDM} 
+                  onViewProfile={viewProfile}
+                />
               )}
 
               {view === 'admin' && user?.email === 'demizy2024@gmail.com' && (
@@ -283,6 +386,37 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Mobile Bottom Navigation */}
+        {user && (
+          <nav className="lg:hidden h-16 shrink-0 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-around px-4 z-30">
+            {[
+              { id: 'home', icon: HomeIcon, label: 'Home' },
+              { id: 'chat', icon: MessageSquare, label: 'Chat' },
+              { id: 'friends', icon: Users, label: 'Friends' },
+              { id: 'news', icon: Newspaper, label: 'News' },
+              { id: 'profile', icon: UserIcon, label: 'Profile' },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setView(item.id as any);
+                  setActiveServerId(null);
+                  setActiveConversationId(null);
+                  setTargetProfileId(null);
+                }}
+                className={`flex flex-col items-center gap-1 transition-colors ${
+                  view === item.id 
+                    ? 'text-indigo-600 dark:text-indigo-400' 
+                    : 'text-slate-400 dark:text-slate-500'
+                }`}
+              >
+                <item.icon size={20} />
+                <span className="text-[9px] font-bold uppercase tracking-widest">{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        )}
       </main>
     </div>
   );

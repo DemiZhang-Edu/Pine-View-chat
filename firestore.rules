@@ -113,6 +113,38 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (existing().authorId == request.auth.uid || isAdmin());
     }
 
+    // 2.3 Friendships
+    function isValidFriendship(data) {
+      return data.keys().hasAll(['users', 'status', 'requesterId', 'updatedAt']) &&
+             data.users is list && data.users.size() == 2 &&
+             request.auth.uid in data.users &&
+             data.status in ['pending', 'accepted'] &&
+             data.requesterId is string &&
+             data.updatedAt == request.time;
+    }
+
+    match /friendships/{friendshipId} {
+      allow read: if isSignedIn() && (resource == null || request.auth.uid in resource.data.users);
+      allow create: if isSignedIn() && isValidFriendship(incoming());
+      allow update: if isSignedIn() && request.auth.uid in existing().users && isValidFriendship(incoming());
+      allow delete: if isSignedIn() && request.auth.uid in existing().users;
+    }
+
+    // 2.4 Conversations
+    match /conversations/{convId} {
+      allow read: if isSignedIn() && (resource == null || request.auth.uid in resource.data.participants);
+      allow create: if isSignedIn() && request.auth.uid in incoming().participants;
+      allow update: if isSignedIn() && request.auth.uid in existing().participants;
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (
+          convId == 'global' || // Fallback if used incorrectly
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(convId)).data.participants
+        );
+        allow create: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(convId)).data.participants && isValidMessage(incoming());
+      }
+    }
+
     // 3. Typing Indicators
     function isValidTyping(data) {
       return data.keys().hasAll(['isTyping', 'lastUpdated', 'userId', 'displayName']) &&
@@ -190,7 +222,7 @@ service cloud.firestore {
       }
 
       match /messages/{messageId} {
-        allow read: if isSignedIn() && (isServerMember(serverId) || isServerOwner(serverId) || isAdmin());
+        allow read: if isSignedIn();
         allow create: if isSignedIn() && (isServerMember(serverId) || isServerOwner(serverId)) && isValidId(messageId) && isValidMessage(incoming());
         allow update, delete: if isSignedIn() && (incoming().senderId == request.auth.uid || isServerOwner(serverId) || isAdmin());
       }
@@ -198,7 +230,7 @@ service cloud.firestore {
 
     // Collection Group rules for server memberships
     match /{path=**}/members/{memberId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isServerMember(path[path.size()-3]));
+      allow read: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid || isServerMember(path[path.size()-3]));
     }
   }
 }
